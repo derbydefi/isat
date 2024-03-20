@@ -9,6 +9,9 @@ This Python module implements the In-Situ Adaptive Tabulation (ISAT) algorithm f
 - **Error Tolerance**: Customizable error threshold for deciding when to update or expand approximations.
 - **Gradient Calculation**: Supports updating the Ellipsoid of Accuracy (EOA) through gradient recalculations.
 
+## Want to help?
+I didn't realize there was an [improved algorithm](https://tcg.mae.cornell.edu/pubs/Lu_LRP_JCP_09.pdf) when developing this software. This improvement can increase performance by adding more table-searching methods, affine space reduction, error correction, ellipsoid of inaccuracy, and improved EOA growing techniques
+
 ## References
 
 -[Storage and Retrieval of Optimal Control](https://apm.byu.edu/prism/uploads/Projects/isat_details.pdf) by J. D. Hedengren and T. F. Edgar, from The University of Texas at Austin, discusses the application of the ISAT algorithm in storage and retrieval of optimal control, focusing on its benefits in real-time control scenarios where computational cycle times are critical .

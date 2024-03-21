@@ -29,20 +29,63 @@ class ISAT:
         if self.root is None:
             self.root = BSTNode()
 
+
+
     def add_approximation(self, input_data, output_data):
         """Adds a new approximation to the ISAT model by creating a BST node with given input and output data. If the tree is empty, the new node becomes the root; otherwise, it is inserted according to BST rules."""
-        new_node = BSTNode(data=(input_data, output_data))
+
+        # Calculate the gradient matrix for the new data point
+        gradient_matrix = self.recalculate_gradient(input_data, output_data)
+        
+        # Initialize the EOA matrix - this example assumes a simple initial EOA, but it should be adapted based on your requirements
+        eoa_matrix = np.eye(len(input_data))  # Identity matrix as a starting point
+        
+        # Add the new node with input data, output data, gradient matrix, and EOA matrix
+        new_node = BSTNode(data=(input_data, output_data, gradient_matrix, eoa_matrix))
+        
         if self.root is None:
             self.root = new_node
         else:
             self._insert_bst(self.root, new_node)
+    def query_approximation(self, input_data):
+        """
+        Queries the ISAT model for an approximation of the given input data.
+        If an existing approximation within the error tolerance is found, it is used.
+        Otherwise, a new approximation is computed, added to the model, and returned.
+        """
+        # Attempt to find the nearest approximation in the model
+        nearest_node = self.find_nearest_approximation(input_data)
+        if nearest_node is not None:
+            # Calculate local error to decide if the approximation is acceptable
+            predicted_output = nearest_node.data[1]  # Assuming this is the output value
+            actual_output = self.output_function(input_data)
+            error = self.calculate_local_error(actual_output, predicted_output)
+            
+            if error <= self.error_tolerance:
+                # If the error is within tolerance, use the predicted output
+                return predicted_output
+            else:
+                # If the error is too large, update the approximation
+                self.update_approximation(nearest_node, input_data, actual_output)
+                return actual_output
+        else:
+            # If no approximation was found, compute and add a new one
+            actual_output = self.output_function(input_data)
+            self.add_approximation(input_data, actual_output)
+            return actual_output
+
+
 
     def update_approximation(self, node, new_input, new_output):
-        """Updates an existing approximation within the model. It recalculates the gradient matrix and the EOA based on new input and output data, adjusting the existing node's information to reflect the updated approximation."""
         input_data, output_data, gradient_matrix, eoa_matrix = node.data
-        A_prime = self.calculate_jacobian(new_input, self.output_function)
-        eoa_matrix_updated = self.update_eoa_matrix_advanced(gradient_matrix, self.calculate_local_error(output_data, new_output), self.error_tolerance)
+        A_prime = self.calculate_jacobian(new_input)
+        local_error = self.calculate_local_error(output_data, new_output)
+        
+        eoa_matrix_updated = self.update_eoa_matrix_advanced(gradient_matrix, local_error, self.error_tolerance)
+        
         node.data = (input_data, new_output, A_prime, eoa_matrix_updated)
+
+
 
     def recalculate_gradient(self, input_data, output_data):
         """Calculates the gradient of the output with respect to the input by applying a small perturbation to the input. This method is used for sensitivity analysis and is crucial for updating the EOA accurately."""
@@ -55,17 +98,10 @@ class ISAT:
             gradient[i] = (output_plus_delta - output_data) / delta
         return gradient
 
-    def update_eoa_matrix_advanced(self, node, new_input, new_output, output_function):
-        """Refines the EOA based on new sensitivity information obtained from the updated gradient matrix and observed errors. It ensures that the EOA remains accurate and includes new data points as necessary."""
-        input_data, output_data, gradient_matrix, eoa_matrix = node.data
-        local_error = self.calculate_local_error(output_data, new_output)
-        error_tolerance = self.error_tolerance
-        
-        # Recalculate gradient matrix based on new input
-        A_prime = self.calculate_jacobian(new_input, output_function)
-        
+    def update_eoa_matrix_advanced(self, gradient_matrix, local_error, error_tolerance):
+        # No need to unpack node.data as we're directly using the provided arguments
         # Use SVD for the updated gradient matrix
-        U, s, Vt = np.linalg.svd(A_prime)
+        U, s, Vt = np.linalg.svd(gradient_matrix)
         
         # Adjust the EOA based on local error compared to error tolerance
         if local_error > error_tolerance:
@@ -80,36 +116,16 @@ class ISAT:
         # Inverse of the adjusted matrix to update the EOA shape
         pseudo_inverse_adjusted = np.linalg.pinv(adjusted_gradient_matrix)
         eoa_matrix_updated = np.linalg.sqrtm(pseudo_inverse_adjusted)
+        return eoa_matrix_updated
 
-        # Now, check if the new_input is outside the current EOA, if so, adjust the EOA to include it
-        # This simplification directly increases the EOA "radius" based on the distance of new_input
-        # from the EOA center, if necessary. It's a conceptual placeholder for more complex adjustments.
-        vector_to_new_point = new_input - input_data
-        distance_to_new_point = np.linalg.norm(vector_to_new_point)
-        eoa_radius = np.linalg.norm(eoa_matrix_updated) # Simplified "radius" of the EOA
-
-        if distance_to_new_point > eoa_radius:
-            scale_factor = distance_to_new_point / eoa_radius
-            eoa_matrix_updated *= scale_factor
-
-        # Update node data with the adjusted EOA
-        node.data = (input_data, new_output, A_prime, eoa_matrix_updated)
 
 
 
     def is_within_eoa(self, node, query):
         """Determines whether a given query point falls within the EOA of a specific node in the model. This is critical for deciding whether to use an existing approximation or to create a new one."""
-        # Extracting EOA information from the node
-        _, _, _, eoa_center, eoa_matrix = node.data
-        
-        # Calculate the difference vector between the query and the EOA center
-        diff_vector = query - eoa_center
-        
-        # Transform the difference vector by the EOA matrix
-        # Assuming eoa_matrix is the inverse square root of the covariance matrix defining the EOA shape
+        input_data, output_data, gradient_matrix, eoa_matrix = node.data
+        diff_vector = query - input_data
         transformed_diff = np.dot(eoa_matrix, diff_vector)
-        
-        # Check if the query falls within the EOA by seeing if the squared norm is <= 1
         if np.dot(transformed_diff, transformed_diff) <= 1:
             return True
         else:
@@ -119,13 +135,10 @@ class ISAT:
 
     def calculate_jacobian(self, input_data):
         """Computes the Jacobian matrix of the output function with respect to the input data using complex step differentiation. This provides a highly accurate method for sensitivity analysis."""
-        if not self.output_function:
-            raise ValueError("Output function is not defined.")
-        
-        jacobian = np.zeros((len(input_data), len(input_data)), dtype=np.complex)
+        jacobian = np.zeros((len(input_data), len(input_data)), dtype=np.complex128)
         step_size = 1e-20  # A very small step size
         for i in range(len(input_data)):
-            perturbed_input = np.array(input_data, dtype=np.complex)
+            perturbed_input = np.array(input_data, dtype=np.complex128)
             perturbed_input[i] += step_size * 1j  # Apply a complex step
             derivative = self.output_function(perturbed_input)
             jacobian[:, i] = np.imag(derivative) / step_size

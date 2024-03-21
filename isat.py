@@ -2,12 +2,12 @@ import numpy as np
 
 
 
-class BSTNode:
-    def __init__(self, left=None, right=None, data=None):
-        """Initializes a binary search tree node with optional left and right children and data. The data typically includes input values, output values, and information related to the Ellipsoid of Accuracy (EOA)."""
+class KDNode:
+    def __init__(self, data=None, left=None, right=None, axis=0):
+        self.data = data
         self.left = left
         self.right = right
-        self.data = data  
+        self.axis = axis  # The dimension/axis the node splits
 
 class ISAT:
     def __init__(self,error_tolerance=1e-5, output_function=None):
@@ -24,55 +24,33 @@ class ISAT:
         self.height = 0
         self.max_leaves = 0
 
-    def initialize_bst(self):
-        """Ensures the binary search tree (BST) has a root node. This method is used to prepare the BST for data insertion when the model is first used."""
-        if self.root is None:
-            self.root = BSTNode()
-
-
 
     def add_approximation(self, input_data, output_data):
-        """Adds a new approximation to the ISAT model by creating a BST node with given input and output data. If the tree is empty, the new node becomes the root; otherwise, it is inserted according to BST rules."""
-
-        # Calculate the gradient matrix for the new data point
+        """ Adds approximation to ISAT's kdtree """
         gradient_matrix = self.recalculate_gradient(input_data, output_data)
-        
-        # Initialize the EOA matrix - this example assumes a simple initial EOA, but it should be adapted based on your requirements
-        eoa_matrix = np.eye(len(input_data))  # Identity matrix as a starting point
-        
-        # Add the new node with input data, output data, gradient matrix, and EOA matrix
-        new_node = BSTNode(data=(input_data, output_data, gradient_matrix, eoa_matrix))
-        
+        eoa_matrix = np.eye(len(input_data))  # Assuming multi-dimensional input
+        new_node = KDNode(data=(input_data, output_data, gradient_matrix, eoa_matrix))
         if self.root is None:
             self.root = new_node
         else:
-            self._insert_bst(self.root, new_node)
+            self._insert_kd_tree(self.root, new_node, 0)
     def query_approximation(self, input_data):
-        """
-        Queries the ISAT model for an approximation of the given input data.
-        If an existing approximation within the error tolerance is found, it is used.
-        Otherwise, a new approximation is computed, added to the model, and returned.
-        """
-        # Attempt to find the nearest approximation in the model
         nearest_node = self.find_nearest_approximation(input_data)
+        actual_output = self.output_function(input_data)
+
         if nearest_node is not None:
-            # Calculate local error to decide if the approximation is acceptable
-            predicted_output = nearest_node.data[1]  # Assuming this is the output value
-            actual_output = self.output_function(input_data)
+            predicted_output = nearest_node.data[1]
             error = self.calculate_local_error(actual_output, predicted_output)
             
             if error <= self.error_tolerance:
-                # If the error is within tolerance, use the predicted output
                 return predicted_output
             else:
-                # If the error is too large, update the approximation
                 self.update_approximation(nearest_node, input_data, actual_output)
                 return actual_output
         else:
-            # If no approximation was found, compute and add a new one
-            actual_output = self.output_function(input_data)
             self.add_approximation(input_data, actual_output)
             return actual_output
+
 
 
 
@@ -88,35 +66,29 @@ class ISAT:
 
 
     def recalculate_gradient(self, input_data, output_data):
-        """Calculates the gradient of the output with respect to the input by applying a small perturbation to the input. This method is used for sensitivity analysis and is crucial for updating the EOA accurately."""
-        delta = 1e-5  
-        gradient = np.zeros_like(input_data)
-        for i in range(len(input_data)):
-            input_plus_delta = np.copy(input_data)
-            input_plus_delta[i] += delta
-            output_plus_delta = self.output_function(input_plus_delta)  
-            gradient[i] = (output_plus_delta - output_data) / delta
+        """Calculates the gradient for n-dimensional input by applying a small perturbation to each dimension."""
+        delta = 1e-5
+        num_dims = input_data.shape[0]  # Assuming input_data is an np.array with shape (n_dims,)
+        gradient = np.zeros(num_dims)
+        for i in range(num_dims):
+            perturbed_input = np.copy(input_data)
+            perturbed_input[i] += delta
+            output_with_delta = self.output_function(perturbed_input)
+            gradient[i] = (output_with_delta - output_data) / delta
         return gradient
 
     def update_eoa_matrix_advanced(self, gradient_matrix, local_error, error_tolerance):
-        # No need to unpack node.data as we're directly using the provided arguments
-        # Use SVD for the updated gradient matrix
         U, s, Vt = np.linalg.svd(gradient_matrix)
-        
-        # Adjust the EOA based on local error compared to error tolerance
         if local_error > error_tolerance:
             adjustment_factor = np.sqrt(local_error / error_tolerance)
             s_adjusted = s * adjustment_factor
         else:
             s_adjusted = s
-
         S_adjusted = np.diag(s_adjusted)
         adjusted_gradient_matrix = U @ S_adjusted @ Vt
-
-        # Inverse of the adjusted matrix to update the EOA shape
-        pseudo_inverse_adjusted = np.linalg.pinv(adjusted_gradient_matrix)
-        eoa_matrix_updated = np.linalg.sqrtm(pseudo_inverse_adjusted)
+        eoa_matrix_updated = np.linalg.pinv(adjusted_gradient_matrix)  
         return eoa_matrix_updated
+
 
 
 
@@ -145,40 +117,65 @@ class ISAT:
         return np.real(jacobian)  # Return the real part, as the imaginary part should be negligible
 
 
-    def _insert_bst(self, current, new_node):
-        """Inserts a new node into the binary search tree in the correct position according to BST rules. This method ensures the tree remains ordered, facilitating efficient search and retrieval."""
-        if new_node.data[0] < current.data[0]:
+    def _insert_kd_tree(self, current, new_node, depth):
+        if current is None:
+            return new_node
+
+        # Cycle through dimensions
+        axis = depth % len(new_node.data[0]) 
+
+        # Ensure both points are numpy arrays to avoid shape issues
+        current_point = np.array(current.data[0])
+        new_point = np.array(new_node.data[0])
+
+        if new_point[axis] < current_point[axis]:
             if current.left is None:
                 current.left = new_node
+                new_node.axis = axis
             else:
-                self._insert_bst(current.left, new_node)
+                self._insert_kd_tree(current.left, new_node, depth + 1)
         else:
             if current.right is None:
                 current.right = new_node
+                new_node.axis = axis
             else:
-                self._insert_bst(current.right, new_node)
+                self._insert_kd_tree(current.right, new_node, depth + 1)
+        return current
+
 
     def find_nearest_approximation(self, input_data):
-        """Searches the BST for the node that best approximates a given input data point. This method is key for retrieving approximations and deciding on further actions like update or addition."""
+        """
+        Finds the nearest node (approximation) to the given input data using the k-d tree.
+        """
         if self.root is None:
             return None
-        return self._search_bst(self.root, input_data)
+        return self._search_nearest(self.root, input_data, 0, None, float('inf'))[0]
+
     
-    def _search_bst(self, current, target, closest=None):
-        """Performs a recursive search through the BST to find the nearest approximation to a given target. It prioritizes nodes within the EOA but defaults to the closest node if no suitable match is found within the EOA."""
-        if current is None:
-            return closest
-        if self.is_within_eoa(current, target):
-            # If within EOA, this node is a strong candidate
-            return current
-        # Even if not within EOA, update closest if this node is closer than the current closest
-        if closest is None or self._distance(target, current.data[0]) < self._distance(target, closest.data[0]):
-            closest = current
-        # Continue searching in the direction that target dictates
-        if target < current.data[0]:
-            return self._search_bst(current.left, target, closest)
-        else:
-            return self._search_bst(current.right, target, closest)
+    def _search_nearest(self, node, target, depth, best=None, best_dist=float('inf')):
+        if node is None:
+            return best, best_dist
+
+        node_data = node.data[0]
+        axis = depth % len(node_data)
+
+        here_dist = np.linalg.norm(node_data - target)
+        if here_dist < best_dist:
+            best_dist = here_dist
+            best = node
+
+        diff = target[axis] - node_data[axis]
+        go_left = diff < 0
+        good_side = node.left if go_left else node.right
+        bad_side = node.right if go_left else node.left
+
+        best, best_dist = self._search_nearest(good_side, target, depth + 1, best, best_dist)
+
+        if diff**2 < best_dist:
+            # There might be a closer point on the 'bad' side of the partition.
+            best, best_dist = self._search_nearest(bad_side, target, depth + 1, best, best_dist)
+
+        return best, best_dist
 
 
     def _distance(self, point1, point2):

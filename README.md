@@ -1,6 +1,6 @@
 # In-Situ Adaptive Tabulation (ISAT) Implementation
 
-This Python module implements the In-Situ Adaptive Tabulation (ISAT) algorithm for efficient function approximation. ISAT is particularly useful for applications requiring rapid evaluations of complex, computationally intensive functions. The core of this implementation involves a binary search tree (BST) for storing and retrieving approximations based on input-output mappings. This software is a work in progress and any help would be appreciated!
+This Python module implements the In-Situ Adaptive Tabulation (ISAT) algorithm for efficient function approximation. ISAT is particularly useful for applications requiring rapid evaluations of complex, computationally intensive functions. The core of this implementation involves a K-D Tree for storing and retrieving approximations based on input-output mappings. This software is a work in progress and any help would be appreciated!
 
 ## Features
 

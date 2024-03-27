@@ -271,6 +271,37 @@ class ISAT:
 
     
     def query(self, y0, t_span, params, return_gradients=False, use_existing=True, num_points=100):
+    """
+    Queries the ISAT database for an approximation of the system state based on the initial conditions, 
+    optionally computing and returning the gradients of the system dynamics with respect to the initial 
+    conditions and parameters. If an appropriate approximation does not exist in the database, 
+    the method can compute a new state, add it to the database for future queries, and optionally 
+    update an existing approximation.
+
+    Parameters:
+        y0 (numpy.ndarray): The initial conditions for the system simulation. This serves as the key for querying the ISAT database.
+        t_span (tuple): A tuple representing the start and end times of the simulation, used to define the integration interval.
+        params (numpy.ndarray): The parameters of the system dynamics function, which influence the behavior of the system being simulated.
+        return_gradients (bool, optional): A flag indicating whether the gradients of the system state with respect to the initial conditions and parameters should be computed and returned. Defaults to False.
+        use_existing (bool, optional): A flag that allows the method to use an existing approximation from the database if it meets the accuracy requirements. Defaults to True.
+        num_points (int, optional): The number of points to use for numerical integration when computing a new state or updating an approximation. Defaults to 100.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - approximated_state_vector (numpy.ndarray): The approximated state vector of the system at the end of the integration interval. This is either retrieved from the database, computed anew, or the result of updating an existing approximation.
+            - optional_gradients (tuple or None): If `return_gradients` is True, this is a tuple containing the gradients of the system state with respect to the initial conditions and parameters. Otherwise, None.
+
+    Example:
+        # Define initial conditions, time span, and parameters for the query
+        y0 = np.array([0.1, 0.2, 0.3])
+        t_span = (0, 10)
+        params = np.array([1.0, 0.5])
+
+        # Query the ISAT database for an approximation, requesting gradients
+        approximated_state, gradients = isat_instance.query(y0, t_span, params, return_gradients=True)
+
+        # Use the approximated state and gradients for further analysis or visualization
+    """
         # Initialize default return values
         approximated_state_vector = None
         optional_gradients = None
